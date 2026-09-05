@@ -1,0 +1,174 @@
+import Link from "next/link";
+import { Clock, Gauge, MapPin, TimerReset, AlertTriangle } from "lucide-react";
+import { getFullTrainDashboard, getModelMetrics } from "@/lib/dataProvider";
+import { StatusBadge } from "@/components/StatusBadge";
+import { ETAComparison } from "@/components/ETAComparison";
+import { ConfidenceRange } from "@/components/ConfidenceRange";
+import { StationETATable } from "@/components/StationETATable";
+import { StationTimeline } from "@/components/StationTimeline";
+import { PredictionFactors } from "@/components/PredictionFactors";
+import { BaselineVsModelSummaryChart } from "@/components/MetricsChart";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { TrainSearch } from "@/components/TrainSearch";
+import { trainSummaries } from "@/data/mockTrains";
+import { formatClock } from "@/lib/etaUtils";
+
+export const dynamic = "force-dynamic";
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  accent,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  accent?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-secondary/30 p-4">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-navy-900 text-rail-accent2">
+        <Icon className="h-4.5 w-4.5" />
+      </span>
+      <div>
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className={`text-sm font-semibold ${accent ?? "text-foreground"}`}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+export default async function TrainDashboardPage({ params }: { params: { number: string } }) {
+  const trainNumber = params.number;
+
+  let dashboard: Awaited<ReturnType<typeof getFullTrainDashboard>> | null = null;
+  try {
+    dashboard = await getFullTrainDashboard(trainNumber);
+  } catch {
+    dashboard = null;
+  }
+
+  const metricsResult = await getModelMetrics();
+
+  if (!dashboard) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
+        <Card>
+          <CardContent className="p-8 text-center">
+            <AlertTriangle className="mx-auto h-8 w-8 text-rail-amber" />
+            <h1 className="mt-4 text-xl font-semibold text-foreground">
+              No data available for train {trainNumber}
+            </h1>
+            <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+              We couldn&apos;t retrieve live or demo data for this train number. Try one of the demo
+              trains below.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              {trainSummaries.map((t) => (
+                <Link
+                  key={t.trainNumber}
+                  href={`/train/${t.trainNumber}`}
+                  className="rounded-md border border-border bg-secondary/40 px-3 py-1.5 text-sm font-medium hover:bg-secondary"
+                >
+                  {t.trainNumber} — {t.trainName}
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const { status, stationETAs, prediction, source } = dashboard;
+  const metrics = metricsResult.data;
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      {/* Top section */}
+      <div className="flex flex-col gap-4 border-b border-border/70 pb-6 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-mono text-2xl font-bold text-foreground">{status.trainNumber}</span>
+            <h1 className="text-2xl font-semibold text-foreground">{status.trainName}</h1>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {status.source} → {status.destination}
+          </p>
+        </div>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <StatusBadge source={source} />
+          <p className="text-xs text-muted-foreground">
+            Last updated {formatClock(status.lastUpdated)}
+          </p>
+        </div>
+      </div>
+
+      {source === "demo" && (
+        <div className="mt-4 rounded-md border border-rail-amber/30 bg-rail-amber/10 px-4 py-2.5 text-xs text-rail-amber">
+          Live railway data temporarily unavailable. Showing simulation data.
+        </div>
+      )}
+
+      {/* Current status tiles */}
+      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatTile icon={MapPin} label="Current Location" value={status.currentStation} />
+        <StatTile icon={Gauge} label="Current Speed" value={`${status.currentSpeedKmph} km/h`} />
+        <StatTile
+          icon={TimerReset}
+          label="Current Delay"
+          value={status.currentDelayMin <= 0 ? "On time" : `${status.currentDelayMin} min`}
+          accent={status.currentDelayMin > 15 ? "text-rail-red" : status.currentDelayMin > 0 ? "text-rail-amber" : "text-rail-signal"}
+        />
+        <StatTile icon={Clock} label="Next Station" value={status.nextStation} />
+      </div>
+
+      <div className="mt-3">
+        <Badge variant={status.runningStatus === "Delayed" ? "warning" : "success"}>
+          {status.runningStatus}
+        </Badge>
+        <span className="ml-3 text-xs text-muted-foreground">
+          {status.distanceTravelledKm} km travelled · {status.remainingDistanceKm} km remaining
+        </span>
+      </div>
+
+      {/* Main grid */}
+      <div className="mt-8 grid gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <ETAComparison prediction={prediction} />
+          <StationTimeline stations={stationETAs} />
+          <StationETATable stations={stationETAs} />
+        </div>
+        <div className="space-y-6">
+          <ConfidenceRange prediction={prediction} />
+          <PredictionFactors factors={prediction.factors} />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Prototype Evaluation</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Badge variant="warning" className="mb-3">
+                Demo metrics
+              </Badge>
+              <BaselineVsModelSummaryChart
+                baselineMAEMin={metrics.baselineMAEMin}
+                modelMAEMin={metrics.modelMAEMin}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Improvement: <span className="font-medium text-foreground">{metrics.improvementPercent}%</span>{" "}
+                — demo metrics until connected to the actual trained model.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <div className="mt-10">
+        <TrainSearch />
+      </div>
+    </div>
+  );
+}

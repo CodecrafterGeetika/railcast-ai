@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 220 55% 5%;
+  --foreground: 210 20% 92%;
+  --card: 217 45% 9%;
+  --card-foreground: 210 20% 92%;
+  --primary: 213 94% 58%;
+  --primary-foreground: 210 20% 98%;
+  --secondary: 217 30% 16%;
+  --secondary-foreground: 210 20% 92%;
+  --muted: 217 30% 14%;
+  --muted-foreground: 215 16% 65%;
+  --accent: 199 89% 58%;
+  --accent-foreground: 210 20% 98%;
+  --border: 217 30% 18%;
+  --input: 217 30% 18%;
+  --ring: 213 94% 58%;
+  --radius: 0.5rem;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.12), transparent),
+    linear-gradient(180deg, #060c1a 0%, #050b16 100%);
+  background-attachment: fixed;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(217 30% 22%);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(217 30% 30%);
+}
+
+.leaflet-container {
+  background: #0a1428 !important;
+  font-family: inherit;
+}
+
+.rail-grid-line {
+  background-image: linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.4); }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
