@@ -1,4 +1,4 @@
-# RailPulse AI (RailCast AI)
+# RailCast AI
 
 **Predicting Every Arrival, Before It Happens.**
 
