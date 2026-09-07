@@ -4,7 +4,7 @@ import type { OperationalAlert } from "@/lib/controlOfficeTypes";
 
 const SEVERITY_CONFIG: Record
   OperationalAlert["severity"],
-  { icon: React.ElementType; style: string }
+  { icon: React.ElementType, style: string }
 > = {
   info: { icon: Info, style: "border-rail-accent2/25 bg-rail-accent2/10 text-rail-accent2" },
   warning: { icon: AlertTriangle, style: "border-rail-amber/25 bg-rail-amber/10 text-rail-amber" },
