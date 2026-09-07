@@ -6,6 +6,7 @@ import { TrainFront } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
+  { label: "Control Office", href: "/control-office" },
   { label: "Passenger View", href: "/" },
   { label: "Operations Control", href: "/operations" },
   { label: "Model Performance", href: "/performance" },
