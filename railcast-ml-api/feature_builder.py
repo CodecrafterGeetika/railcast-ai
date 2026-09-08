@@ -1,4 +1,3 @@
-
 from pathlib import Path
 import pandas as pd
 from datetime import datetime
@@ -6,16 +5,14 @@ from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Main timetable
 CSV_PATH = BASE_DIR / "train_details.csv"
 
 train_details = pd.read_csv(CSV_PATH)
 
 
-# ---------------------------------------------------------
-# Demo route for Train 1007
-# Source: train_1007_dynamic_eta_test.csv
-# ---------------------------------------------------------
+# =========================================================
+# DEMO ROUTE — TRAIN 1007
+# =========================================================
 
 DEMO_1007_ROUTE = [
     {
@@ -75,36 +72,36 @@ DEMO_1007_ROUTE = [
 ]
 
 
-# ---------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
 
 def normalize_train_number(value):
     return str(value).replace(".0", "").strip()
 
 
 def time_to_minutes(value):
+
     if pd.isna(value):
         return None
 
     value = str(value).strip()
 
     try:
-        hour, minute = map(int, value.split(":")[:2])
+        hour, minute = map(
+            int,
+            value.split(":")[:2]
+        )
+
         return hour * 60 + minute
+
     except Exception:
         return None
 
 
-def minutes_to_time(minutes):
-    minutes = int(round(minutes)) % (24 * 60)
-
-    return f"{minutes // 60:02d}:{minutes % 60:02d}"
-
-
-# ---------------------------------------------------------
-# Build features
-# ---------------------------------------------------------
+# =========================================================
+# BUILD FEATURES
+# =========================================================
 
 def build_features(
     train_number,
@@ -113,15 +110,24 @@ def build_features(
     now=None
 ):
 
-    train_number = normalize_train_number(train_number)
-    current_station = str(current_station).strip().upper()
+    train_number = normalize_train_number(
+        train_number
+    )
+
+    current_station = str(
+        current_station
+    ).strip().upper()
+
+    departure_delay = float(
+        departure_delay
+    )
 
     if now is None:
         now = datetime.now()
 
 
     # =====================================================
-    # SPECIAL DEMO ROUTE: TRAIN 1007
+    # TRAIN 1007 DEMO ROUTE
     # =====================================================
 
     if train_number == "1007":
@@ -129,69 +135,78 @@ def build_features(
         demo_row = None
 
         for row in DEMO_1007_ROUTE:
+
             if row["station"] == current_station:
+
                 demo_row = row
                 break
 
+
         if demo_row is None:
+
             raise ValueError(
-                f"Station {current_station} not found on demo Train 1007"
+                f"Station {current_station} "
+                f"not found on demo Train 1007"
             )
 
-        next_station = demo_row["next_station"]
-        scheduled_arrival = demo_row["scheduled_arrival"]
-        scheduled_travel_min = demo_row["scheduled_travel_min"]
+
+        next_station = demo_row[
+            "next_station"
+        ]
+
+        scheduled_arrival = demo_row[
+            "scheduled_arrival"
+        ]
+
+        scheduled_travel_min = demo_row[
+            "scheduled_travel_min"
+        ]
+
+
+        arrival_minutes = time_to_minutes(
+            scheduled_arrival
+        )
 
         departure_time = (
-            time_to_minutes(scheduled_arrival)
+            arrival_minutes
             - scheduled_travel_min
         )
 
-        departure_time = departure_time % (24 * 60)
+        departure_time %= 24 * 60
+
 
         features = {
 
-            # -------------------------------
-            # Categorical features
-            # -------------------------------
             "train": train_number,
+
             "station": current_station,
+
             "next_station": next_station,
 
-            # -------------------------------
-            # Current operational features
-            # -------------------------------
-            "dep_delay": float(departure_delay),
+            "dep_delay": departure_delay,
 
             "scheduled_travel_min": float(
                 scheduled_travel_min
             ),
 
-            # -------------------------------
-            # Time features
-            # -------------------------------
             "day_of_week": now.weekday(),
 
-            "departure_hour": departure_time // 60,
+            "departure_hour": (
+                departure_time // 60
+            ),
 
-            "departure_minute": departure_time % 60,
+            "departure_minute": (
+                departure_time % 60
+            ),
 
-            # -------------------------------
-            # Historical features
-            #
-            # Temporary defaults because the
-            # deployed historical delay dataset
-            # is not connected yet.
-            # -------------------------------
             "historical_mean_delay": 0.0,
 
             "historical_median_delay": 0.0,
 
             "historical_std_delay": 0.0,
 
-            "historical_mean_dep_delay": float(
-                departure_delay
-            ),
+            "historical_mean_dep_delay":
+                departure_delay,
 
             "historical_observations": 1.0,
 
@@ -202,17 +217,16 @@ def build_features(
             "historical_std_delay_change": 0.0,
         }
 
-        metadata = {
-            "next_station": next_station,
-            "scheduled_arrival": scheduled_arrival,
-            "scheduled_travel_min": scheduled_travel_min,
-        }
 
-        return features, metadata
+        return (
+            features,
+            next_station,
+            scheduled_arrival
+        )
 
 
     # =====================================================
-    # NORMAL TIMETABLE ROUTE
+    # NORMAL TRAIN FROM TIMETABLE
     # =====================================================
 
     train_data = train_details[
@@ -223,6 +237,7 @@ def build_features(
 
 
     if train_data.empty:
+
         raise ValueError(
             f"Train {train_number} not found"
         )
@@ -242,6 +257,7 @@ def build_features(
 
 
     if current_matches.empty:
+
         raise ValueError(
             f"Station {current_station} "
             f"not found on train {train_number}"
@@ -252,8 +268,10 @@ def build_features(
 
 
     if current_index >= len(train_data) - 1:
+
         raise ValueError(
-            "No next station available"
+            f"No next station available "
+            f"for train {train_number}"
         )
 
 
@@ -266,11 +284,9 @@ def build_features(
     ]
 
 
-    next_station = (
-        str(next_row["Station Code"])
-        .strip()
-        .upper()
-    )
+    next_station = str(
+        next_row["Station Code"]
+    ).strip().upper()
 
 
     departure_time = time_to_minutes(
@@ -286,6 +302,7 @@ def build_features(
         departure_time is None
         or next_arrival_time is None
     ):
+
         raise ValueError(
             "Invalid timetable time"
         )
@@ -297,38 +314,30 @@ def build_features(
     )
 
 
-    # Handle midnight crossing
     if scheduled_travel_min < 0:
+
         scheduled_travel_min += 24 * 60
+
+
+    scheduled_arrival = str(
+        next_row["Arrival time"]
+    )
 
 
     features = {
 
-        # -------------------------------
-        # Categorical features
-        # -------------------------------
         "train": train_number,
 
         "station": current_station,
 
         "next_station": next_station,
 
-
-        # -------------------------------
-        # Operational features
-        # -------------------------------
-        "dep_delay": float(
-            departure_delay
-        ),
+        "dep_delay": departure_delay,
 
         "scheduled_travel_min": float(
             scheduled_travel_min
         ),
 
-
-        # -------------------------------
-        # Time features
-        # -------------------------------
         "day_of_week": now.weekday(),
 
         "departure_hour": (
@@ -339,21 +348,14 @@ def build_features(
             departure_time % 60
         ),
 
-
-        # -------------------------------
-        # Historical features
-        #
-        # Temporary defaults
-        # -------------------------------
         "historical_mean_delay": 0.0,
 
         "historical_median_delay": 0.0,
 
         "historical_std_delay": 0.0,
 
-        "historical_mean_dep_delay": float(
-            departure_delay
-        ),
+        "historical_mean_dep_delay":
+            departure_delay,
 
         "historical_observations": 1.0,
 
@@ -365,19 +367,8 @@ def build_features(
     }
 
 
-    metadata = {
-
-        "next_station": next_station,
-
-        "scheduled_arrival": next_row[
-            "Arrival time"
-        ],
-
-        "scheduled_travel_min": (
-            scheduled_travel_min
-        ),
-    }
-
-
-    return features, metadata
-
+    return (
+        features,
+        next_station,
+        scheduled_arrival
+    )
