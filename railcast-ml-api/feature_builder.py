@@ -76,7 +76,8 @@ def build_features(train_number, current_station, departure_delay, now=None):
     if scheduled_travel_min < 0:
         scheduled_travel_min += 24 * 60
 
-    now = datetime.now()
+    if now is None:
+       now = datetime.now()
 
     features = {
         "train": train_number,
