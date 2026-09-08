@@ -10,7 +10,8 @@ import {
 } from "./types";
 import * as api from "./apiProvider";
 import * as mock from "./mockProvider";
-import { nowISO } from "./etaUtils";
+import { addMinutes, diffMinutes, nowISO } from "./etaUtils";
+import type { MLPredictionResponse } from "./mlClient";
 import type { ControlOfficeSummary } from "./controlOfficeTypes";
 import { mockGetControlOfficeSummary } from "./controlOfficeMock";
 import { fetchLiveTrainStatus } from "./railradarClient";
@@ -91,11 +92,78 @@ export async function getStationETA(trainNumber: string): Promise<ProviderResult
   );
 }
 
-export async function getPrediction(trainNumber: string): Promise<ProviderResult<ETAPrediction>> {
-  return withFallback(
-    () => api.apiGetPrediction(trainNumber),
-    () => mock.mockGetPrediction(trainNumber)
-  );
+export async function getPrediction(
+  trainNumber: string,
+  currentStation: string,
+  departureDelay: number
+): Promise<ProviderResult<ETAPrediction>> {
+  // Prediction is deliberately different from the other provider flows:
+  // the real CatBoost service is the source of truth and this flow must not
+  // silently fall back to demo prediction data. The browser still talks only
+  // to our same-origin /api/ml/predict route.
+  const response = await fetch(`${getAppOrigin()}/api/ml/predict`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      train_number: trainNumber,
+      current_station: currentStation,
+      departure_delay: departureDelay,
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let detail = `ML prediction failed with HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) detail = body.detail;
+    } catch {
+      // Keep the HTTP status message when the route has no JSON body.
+    }
+    throw new Error(detail);
+  }
+
+  const prediction = await response.json() as MLPredictionResponse;
+  const currentReportedETA = addMinutes(prediction.scheduled_arrival, departureDelay);
+
+  return {
+    data: {
+      trainNumber: prediction.train,
+      stationCode: prediction.current_station,
+      scheduledETA: prediction.scheduled_arrival,
+      currentReportedETA,
+      predictedETA: prediction.predicted_arrival,
+      predictedDelayMin: prediction.predicted_delay_min,
+      predictionRangeStart: prediction.predicted_arrival,
+      predictionRangeEnd: prediction.predicted_arrival,
+      confidencePercent: undefined,
+      differenceMin: diffMinutes(currentReportedETA, prediction.predicted_arrival),
+      factors: [],
+      previousStationDelayMin: departureDelay,
+      historicalSectionTravelMinDelta: 0,
+      headway: "Low",
+      predictionStatus: prediction.status,
+      nextStation: prediction.next_station,
+      modelName: prediction.model,
+    },
+    source: "live",
+    fetchedAt: nowISO(),
+  };
+}
+
+function getAppOrigin(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  }
+
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+
+  return "http://localhost:3000";
 }
 
 export async function getOperationsSummary(): Promise<ProviderResult<OperationsSummary>> {
@@ -700,12 +768,19 @@ export async function getControlOfficeSummary(): Promise<
   }
 }
 /** Convenience helper for loading everything a train dashboard page needs in one call. */
-export async function getFullTrainDashboard(trainNumber: string) {
-  const [status, route, stationETAs, prediction] = await Promise.all([
-    getTrainStatus(trainNumber),
+export async function getFullTrainDashboard(
+  trainNumber: string,
+  predictionInput?: { currentStation: string; departureDelay: number }
+) {
+  const status = await getTrainStatus(trainNumber);
+  const [route, stationETAs, prediction] = await Promise.all([
     getTrainRoute(trainNumber),
     getStationETA(trainNumber),
-    getPrediction(trainNumber),
+    getPrediction(
+      trainNumber,
+      predictionInput?.currentStation ?? status.data.currentStation,
+      predictionInput?.departureDelay ?? status.data.currentDelayMin
+    ),
   ]);
 
   // The dashboard's top-level LIVE/DEMO badge reflects the live telemetry
