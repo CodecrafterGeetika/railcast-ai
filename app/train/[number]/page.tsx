@@ -11,7 +11,7 @@ import {
   Thermometer,
 } from "lucide-react";
 
-import { getFullTrainDashboard, getModelMetrics } from "@/lib/dataProvider";
+import { getFullTrainDashboard, getModelMetrics, getPrediction,} from "@/lib/dataProvider";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ETAComparison } from "@/components/ETAComparison";
 import { ConfidenceRange } from "@/components/ConfidenceRange";
@@ -108,11 +108,138 @@ export default async function TrainDashboardPage({
 
   const metricsResult = await getModelMetrics();
 
-  if (!dashboard) {
+   if (!dashboard) {
+    /*
+     * ---------------------------------------------------------
+     * ML-ONLY FALLBACK
+     *
+     * Important:
+     * A train does NOT need to exist in mockTrains for the
+     * CatBoost prediction to work.
+     *
+     * If the dashboard status/route data is unavailable,
+     * call the ML backend directly using the values entered
+     * in TrainSearch.
+     * ---------------------------------------------------------
+     */
+
+    if (predictionInput) {
+      try {
+        const mlResult = await getPrediction(
+          trainNumber,
+          predictionInput.currentStation,
+          predictionInput.departureDelay
+        );
+
+        const mlPrediction = mlResult.data;
+
+        return (
+          <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+
+            {/* =================================================
+                ML PREDICTION RESULT
+            ================================================== */}
+
+            <div className="flex flex-col gap-3 border-b border-border/70 pb-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-mono text-2xl font-bold text-foreground">
+                  {trainNumber}
+                </span>
+
+                <Badge variant="success">
+                  AI PREDICTION LIVE
+                </Badge>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                CatBoost prediction from the RailCast AI backend
+              </p>
+            </div>
+
+            {/* =================================================
+                ML ETA COMPARISON
+            ================================================== */}
+
+            <div className="mt-6">
+              <ETAComparison prediction={mlPrediction} />
+            </div>
+
+            {/* =================================================
+                PREDICTION DETAILS
+            ================================================== */}
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+
+              <StatTile
+                icon={MapPin}
+                label="Current Station"
+                value={mlPrediction.stationCode}
+              />
+
+              <StatTile
+                icon={Clock}
+                label="Predicted ETA"
+                value={mlPrediction.predictedETA}
+              />
+
+              <StatTile
+                icon={TimerReset}
+                label="Predicted Delay"
+                value={`${mlPrediction.predictedDelayMin ?? 0} min`}
+              />
+
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+
+              <StatTile
+                icon={MapPin}
+                label="Next Station"
+                value={mlPrediction.nextStation ?? "—"}
+              />
+
+              <StatTile
+                icon={Gauge}
+                label="Prediction Status"
+                value={mlPrediction.predictionStatus ?? "—"}
+              />
+
+              <StatTile
+                icon={Gauge}
+                label="ML Model"
+                value={mlPrediction.modelName ?? "RailCast AI"}
+              />
+
+            </div>
+
+            {/* =================================================
+                BACK TO SEARCH
+            ================================================== */}
+
+            <div className="mt-8">
+              <TrainSearch />
+            </div>
+
+          </div>
+        );
+      } catch (mlError) {
+        dashboardError =
+          mlError instanceof Error
+            ? mlError.message
+            : "ML prediction failed";
+      }
+    }
+
+    /*
+     * If there was no ML input or the ML backend itself failed,
+     * keep the original error screen.
+     */
+
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
         <Card>
           <CardContent className="p-8 text-center">
+
             <AlertTriangle className="mx-auto h-8 w-8 text-rail-amber" />
 
             <h1 className="mt-4 text-xl font-semibold text-foreground">
@@ -121,20 +248,13 @@ export default async function TrainDashboardPage({
 
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
               {dashboardError ??
-                `We could not retrieve live or demo data for this train number. Try one of the demo trains below.`}
+                `Enter the current station and departure delay to request an AI prediction.`}
             </p>
 
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              {trainSummaries.map((t) => (
-                <Link
-                  key={t.trainNumber}
-                  href={`/train/${t.trainNumber}`}
-                  className="rounded-md border border-border bg-secondary/40 px-3 py-1.5 text-sm font-medium hover:bg-secondary"
-                >
-                  {t.trainNumber} — {t.trainName}
-                </Link>
-              ))}
+            <div className="mt-6">
+              <TrainSearch />
             </div>
+
           </CardContent>
         </Card>
       </div>
