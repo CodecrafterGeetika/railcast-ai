@@ -608,7 +608,7 @@ function buildLiveControlSummary(
           station:
             first.stationName,
 
-          platform:
+          
             platform: first.platform ?? "—",
 
           trains: [
