@@ -1,4 +1,3 @@
-
 import Link from "next/link";
 import {
   Clock,
@@ -62,18 +61,49 @@ function StatTile({
 
 export default async function TrainDashboardPage({
   params,
+  searchParams,
 }: {
   params: { number: string };
+  searchParams?: {
+    current_station?: string;
+    departure_delay?: string;
+  };
 }) {
   const trainNumber = params.number;
 
-  let dashboard: Awaited<ReturnType<typeof getFullTrainDashboard>> | null =
-    null;
+  const currentStation =
+    searchParams?.current_station?.trim().toUpperCase();
+
+  const parsedDelay =
+    searchParams?.departure_delay != null
+      ? Number(searchParams.departure_delay)
+      : NaN;
+
+  const predictionInput =
+    currentStation && Number.isFinite(parsedDelay)
+      ? {
+          currentStation,
+          departureDelay: parsedDelay,
+        }
+      : undefined;
+
+  let dashboard:
+    | Awaited<ReturnType<typeof getFullTrainDashboard>>
+    | null = null;
+
+  let dashboardError: string | null = null;
 
   try {
-    dashboard = await getFullTrainDashboard(trainNumber);
-  } catch {
+    dashboard = await getFullTrainDashboard(
+      trainNumber,
+      predictionInput
+    );
+  } catch (error) {
     dashboard = null;
+    dashboardError =
+      error instanceof Error
+        ? error.message
+        : "Prediction failed";
   }
 
   const metricsResult = await getModelMetrics();
@@ -90,8 +120,8 @@ export default async function TrainDashboardPage({
             </h1>
 
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              We couldn&apos;t retrieve live or demo data for this train
-              number. Try one of the demo trains below.
+              {dashboardError ??
+                `We could not retrieve live or demo data for this train number. Try one of the demo trains below.`}
             </p>
 
             <div className="mt-6 flex flex-wrap justify-center gap-2">
@@ -111,7 +141,13 @@ export default async function TrainDashboardPage({
     );
   }
 
-  const { status, route, stationETAs, prediction, source } = dashboard;
+  const {
+    status,
+    route,
+    stationETAs,
+    prediction,
+    source,
+  } = dashboard;
 
   const metrics = metricsResult.data;
 
@@ -130,10 +166,12 @@ export default async function TrainDashboardPage({
   );
 
   const currentStationCode =
-    currentStationData?.stationCode ?? prediction.stationCode;
+    currentStationData?.stationCode ??
+    prediction.stationCode;
 
   const nextStationCode =
-    nextStationData?.stationCode ?? currentStationCode;
+    nextStationData?.stationCode ??
+    currentStationCode;
 
   /*
    * ---------------------------------------------------------
@@ -142,11 +180,13 @@ export default async function TrainDashboardPage({
    */
 
   const currentRouteStation = route.stations.find(
-    (station) => station.code === currentStationCode
+    (station) =>
+      station.code === currentStationCode
   );
 
   const nextRouteStation = route.stations.find(
-    (station) => station.code === nextStationCode
+    (station) =>
+      station.code === nextStationCode
   );
 
   /*
@@ -157,7 +197,10 @@ export default async function TrainDashboardPage({
 
   let weather: WeatherResult | null = null;
 
-  if (currentRouteStation && nextRouteStation) {
+  if (
+    currentRouteStation &&
+    nextRouteStation
+  ) {
     const sectionLength = Math.max(
       nextRouteStation.distanceFromSourceKm -
         currentRouteStation.distanceFromSourceKm,
@@ -170,7 +213,10 @@ export default async function TrainDashboardPage({
 
     const fraction = Math.max(
       0,
-      Math.min(1, travelledInSection / sectionLength)
+      Math.min(
+        1,
+        travelledInSection / sectionLength
+      )
     );
 
     const [lat, lon] = interpolateCoords(
@@ -201,7 +247,8 @@ export default async function TrainDashboardPage({
       );
 
       if (weatherResponse.ok) {
-        weather = (await weatherResponse.json()) as WeatherResult;
+        weather =
+          (await weatherResponse.json()) as WeatherResult;
       }
     } catch {
       weather = null;
@@ -295,7 +342,9 @@ export default async function TrainDashboardPage({
       <div className="mt-3">
         <Badge
           variant={
-            status.runningStatus === "Delayed" ? "warning" : "success"
+            status.runningStatus === "Delayed"
+              ? "warning"
+              : "success"
           }
         >
           {status.runningStatus}
@@ -309,7 +358,7 @@ export default async function TrainDashboardPage({
 
       {/* =====================================================
           🌦️ LIVE WEATHER CARD
-          
+
           THIS IS THE WEATHER CARD.
           IT APPEARS DIRECTLY BELOW THE CURRENT STATUS SECTION.
       ====================================================== */}
@@ -321,7 +370,9 @@ export default async function TrainDashboardPage({
               <div className="flex items-center gap-2">
                 <CloudRain className="h-5 w-5 text-rail-accent2" />
 
-                <CardTitle>Live Weather Conditions</CardTitle>
+                <CardTitle>
+                  Live Weather Conditions
+                </CardTitle>
               </div>
 
               <Badge
@@ -362,7 +413,9 @@ export default async function TrainDashboardPage({
               <StatTile
                 icon={Eye}
                 label="Visibility"
-                value={`${(weather.visibility / 1000).toFixed(1)} km`}
+                value={`${(
+                  weather.visibility / 1000
+                ).toFixed(1)} km`}
               />
 
               <StatTile
@@ -376,11 +429,17 @@ export default async function TrainDashboardPage({
             <p className="mt-3 text-xs text-muted-foreground">
               Weather near the train&apos;s current section between{" "}
               <span className="font-medium text-foreground">
-                {currentStationData?.stationName ?? status.currentStation}
+                {
+                  currentStationData?.stationName ??
+                  status.currentStation
+                }
               </span>{" "}
               and{" "}
               <span className="font-medium text-foreground">
-                {nextStationData?.stationName ?? status.nextStation}
+                {
+                  nextStationData?.stationName ??
+                  status.nextStation
+                }
               </span>
             </p>
           </CardContent>
@@ -397,11 +456,17 @@ export default async function TrainDashboardPage({
 
         <div className="space-y-6 lg:col-span-2">
 
-          <ETAComparison prediction={prediction} />
+          <ETAComparison
+            prediction={prediction}
+          />
 
-          <StationTimeline stations={stationETAs} />
+          <StationTimeline
+            stations={stationETAs}
+          />
 
-          <StationETATable stations={stationETAs} />
+          <StationETATable
+            stations={stationETAs}
+          />
 
         </div>
 
@@ -409,9 +474,13 @@ export default async function TrainDashboardPage({
 
         <div className="space-y-6">
 
-          <ConfidenceRange prediction={prediction} />
+          <ConfidenceRange
+            prediction={prediction}
+          />
 
-          <PredictionFactors factors={prediction.factors} />
+          <PredictionFactors
+            factors={prediction.factors}
+          />
 
           {/* =================================================
               PROTOTYPE EVALUATION
@@ -419,17 +488,26 @@ export default async function TrainDashboardPage({
 
           <Card>
             <CardHeader>
-              <CardTitle>Prototype Evaluation</CardTitle>
+              <CardTitle>
+                Prototype Evaluation
+              </CardTitle>
             </CardHeader>
 
             <CardContent>
-              <Badge variant="warning" className="mb-3">
+              <Badge
+                variant="warning"
+                className="mb-3"
+              >
                 Demo metrics
               </Badge>
 
               <BaselineVsModelSummaryChart
-                baselineMAEMin={metrics.baselineMAEMin}
-                modelMAEMin={metrics.modelMAEMin}
+                baselineMAEMin={
+                  metrics.baselineMAEMin
+                }
+                modelMAEMin={
+                  metrics.modelMAEMin
+                }
               />
 
               <p className="mt-2 text-xs text-muted-foreground">
@@ -456,4 +534,3 @@ export default async function TrainDashboardPage({
     </div>
   );
 }
-
