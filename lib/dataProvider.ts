@@ -11,7 +11,7 @@ import {
 import * as api from "./apiProvider";
 import * as mock from "./mockProvider";
 import { addMinutes, diffMinutes, nowISO } from "./etaUtils";
-import type { MLPredictionResponse } from "./mlClient";
+import { predictWithML } from "./mlClient";
 import type { ControlOfficeSummary } from "./controlOfficeTypes";
 import { mockGetControlOfficeSummary } from "./controlOfficeMock";
 import { fetchLiveTrainStatus } from "./railradarClient";
@@ -97,61 +97,60 @@ export async function getPrediction(
   currentStation: string,
   departureDelay: number
 ): Promise<ProviderResult<ETAPrediction>> {
-  // Prediction is deliberately different from the other provider flows:
-  // the real CatBoost service is the source of truth and this flow must not
-  // silently fall back to demo prediction data. The browser still talks only
-  // to our same-origin /api/ml/predict route.
-  const response = await fetch(`${getAppOrigin()}/api/ml/predict`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      train_number: trainNumber,
-      current_station: currentStation,
+  try {
+    const prediction = await predictWithML({
+      train_number: trainNumber.trim(),
+      current_station: currentStation.trim().toUpperCase(),
       departure_delay: departureDelay,
-    }),
-    cache: "no-store",
-  });
+    });
 
-  if (!response.ok) {
-    let detail = `ML prediction failed with HTTP ${response.status}`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body.detail) detail = body.detail;
-    } catch {
-      // Keep the HTTP status message when the route has no JSON body.
-    }
-    throw new Error(detail);
+    const currentReportedETA = addMinutes(
+      prediction.scheduled_arrival,
+      departureDelay
+    );
+
+    return {
+      data: {
+        trainNumber: prediction.train,
+        stationCode: prediction.current_station,
+        scheduledETA: prediction.scheduled_arrival,
+        currentReportedETA,
+        predictedETA: prediction.predicted_arrival,
+        predictedDelayMin: prediction.predicted_delay_min,
+
+        predictionRangeStart: prediction.predicted_arrival,
+        predictionRangeEnd: prediction.predicted_arrival,
+
+        confidencePercent: undefined,
+
+        differenceMin: diffMinutes(
+          currentReportedETA,
+          prediction.predicted_arrival
+        ),
+
+        factors: [],
+
+        previousStationDelayMin: departureDelay,
+
+        historicalSectionTravelMinDelta: 0,
+
+        headway: "Low",
+
+        predictionStatus: prediction.status,
+
+        nextStation: prediction.next_station,
+
+        modelName: prediction.model,
+      },
+
+      source: "live",
+
+      fetchedAt: nowISO(),
+    };
+  } catch (error) {
+    console.error("CatBoost prediction failed:", error);
+    throw error;
   }
-
-  const prediction = await response.json() as MLPredictionResponse;
-  const currentReportedETA = addMinutes(prediction.scheduled_arrival, departureDelay);
-
-  return {
-    data: {
-      trainNumber: prediction.train,
-      stationCode: prediction.current_station,
-      scheduledETA: prediction.scheduled_arrival,
-      currentReportedETA,
-      predictedETA: prediction.predicted_arrival,
-      predictedDelayMin: prediction.predicted_delay_min,
-      predictionRangeStart: prediction.predicted_arrival,
-      predictionRangeEnd: prediction.predicted_arrival,
-      confidencePercent: undefined,
-      differenceMin: diffMinutes(currentReportedETA, prediction.predicted_arrival),
-      factors: [],
-      previousStationDelayMin: departureDelay,
-      historicalSectionTravelMinDelta: 0,
-      headway: "Low",
-      predictionStatus: prediction.status,
-      nextStation: prediction.next_station,
-      modelName: prediction.model,
-    },
-    source: "live",
-    fetchedAt: nowISO(),
-  };
 }
 
 function getAppOrigin(): string {
