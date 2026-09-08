@@ -31,7 +31,7 @@ def minutes_to_time(minutes):
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
-def build_features(train_number, current_station, departure_delay):
+def build_features(train_number, current_station, departure_delay, now=None):
     train_number = normalize_train_number(train_number)
     current_station = str(current_station).strip().upper()
 
