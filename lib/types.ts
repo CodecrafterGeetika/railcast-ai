@@ -56,49 +56,78 @@ export interface PredictionFactor {
 export interface ETAPrediction {
   trainNumber: string;
   stationCode: string;
+
   scheduledETA: string; // "HH:mm"
   currentReportedETA: string; // "HH:mm", railway-reported ETA
   predictedETA: string; // "HH:mm", our AI ETA
+
+  predictedDelayMin?: number;
+
   predictionRangeStart: string; // "HH:mm"
   predictionRangeEnd: string; // "HH:mm"
-  confidencePercent: number;
+
+  confidencePercent?: number;
+
   differenceMin: number; // predictedETA - currentReportedETA (negative = earlier)
+
   factors: PredictionFactor[];
+
   previousStationDelayMin: number;
+
   historicalSectionTravelMinDelta: number; // vs scheduled section time
+
   headway: CongestionLevel;
+
   weather?: "Normal" | "Rain" | "Fog" | "Extreme Heat";
+
+  // Real values returned by the RailCast AI ML backend
+  predictionStatus?: string;
+  nextStation?: string;
+  modelName?: string;
 }
 
 export interface StationETA {
   stationCode: string;
   stationName: string;
+
   scheduledETA: string;
   currentReportedETA: string;
   predictedETA: string;
+
   differenceMin: number;
+
   confidencePercent: number;
+
   status: StationStatus;
+
   actualDelayMin?: number; // for departed stations
+
   predictedDelayMin: number;
 }
 
 export interface ModelMetrics {
   generatedAt: string;
+
   baselineMAEMin: number;
   modelMAEMin: number;
+
   baselineRMSEMin: number;
   modelRMSEMin: number;
+
   accuracyWithin5MinPercent: number;
   accuracyWithin10MinPercent: number;
+
   improvementPercent: number;
+
   isDemoMetrics: boolean;
+
   stationWiseErrors: {
     stationCode: string;
     stationName: string;
     baselineErrorMin: number;
     modelErrorMin: number;
   }[];
+
   errorTrend: {
     label: string;
     baselineErrorMin: number;
@@ -109,17 +138,23 @@ export interface ModelMetrics {
 export interface NetworkTrainMarker {
   trainNumber: string;
   trainName: string;
+
   lat: number;
   lng: number;
+
   delayMin: number;
+
   status: "on-time" | "delayed" | "at-risk";
 }
 
 export interface OperationsAlert {
   id: string;
+
   severity: "info" | "warning" | "critical";
+
   trainNumber: string;
   trainName: string;
+
   message: string;
   timestamp: string;
 }
@@ -128,15 +163,21 @@ export interface OperationsSummary {
   trainsRunning: number;
   trainsDelayed: number;
   trainsAtRisk: number;
+
   averageNetworkDelayMin: number;
+
   averagePredictionConfidencePercent: number;
+
   networkCongestion: CongestionLevel;
+
   alerts: OperationsAlert[];
+
   stationWiseETAErrors: {
     stationCode: string;
     stationName: string;
     avgErrorMin: number;
   }[];
+
   networkTrains: NetworkTrainMarker[];
 }
 
@@ -147,18 +188,40 @@ export interface TrainSummary {
   destination: string;
 }
 
+// ---------------------------------------------------------------------------
 // Result wrapper used by the data provider so the UI always knows whether it
 // is looking at live or simulated data, regardless of which provider served it.
+// ---------------------------------------------------------------------------
+
 export interface ProviderResult<T> {
   data: T;
   source: DataSourceMode;
   fetchedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Provider errors
+//
+// Used by the RailCast AI ML client to distinguish network, timeout,
+// not-found, rate-limit and malformed-response failures.
+// ---------------------------------------------------------------------------
+
 export class ProviderError extends Error {
-  code: "TIMEOUT" | "UNAUTHORIZED" | "NOT_FOUND" | "RATE_LIMITED" | "SERVER_ERROR" | "NETWORK" | "MALFORMED";
-  constructor(code: ProviderError["code"], message: string) {
+  code:
+    | "TIMEOUT"
+    | "UNAUTHORIZED"
+    | "NOT_FOUND"
+    | "RATE_LIMITED"
+    | "SERVER_ERROR"
+    | "NETWORK"
+    | "MALFORMED";
+
+  constructor(
+    code: ProviderError["code"],
+    message: string
+  ) {
     super(message);
+
     this.code = code;
     this.name = "ProviderError";
   }
