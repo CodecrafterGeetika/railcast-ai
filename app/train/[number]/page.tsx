@@ -327,7 +327,7 @@ export default async function TrainDashboardPage({
               <Badge
                 variant={
                   weather.weatherRisk === "HIGH"
-                    ? "destructive"
+                    ? "danger"
                     : weather.weatherRisk === "MEDIUM"
                     ? "warning"
                     : "success"
