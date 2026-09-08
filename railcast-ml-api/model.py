@@ -1,12 +1,11 @@
 from pathlib import Path
 from catboost import CatBoostRegressor
 
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "RailCast_AI_CatBoost_V2.cbm"
 
-MODEL_PATH = (
-    Path(__file__).resolve().parent
-    / "models"
-    / "RailCast_AI_CatBoost_V2.cbm"
-)
+model = CatBoostRegressor()
+model.load_model(str(MODEL_PATH))
 
 FEATURES = [
     "train",
@@ -34,26 +33,6 @@ CATEGORICAL_FEATURES = [
 ]
 
 
-model = CatBoostRegressor()
-model.load_model(str(MODEL_PATH))
-
-
-def predict_delay(features: dict) -> float:
-    """
-    Predict arrival delay using the RailCast AI CatBoost V2 model.
-    """
-
-    import pandas as pd
-
-    row = {
-        feature: features[feature]
-        for feature in FEATURES
-    }
-
-    df = pd.DataFrame([row], columns=FEATURES)
-
-    prediction = model.predict(df)
-
-    predicted_delay = max(0.0, float(prediction[0]))
-
-    return round(predicted_delay, 2)
+def predict_delay(input_data):
+    prediction = model.predict(input_data)
+    return max(0, float(prediction[0]))
