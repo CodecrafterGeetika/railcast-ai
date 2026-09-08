@@ -15,7 +15,19 @@ import type { ControlOfficeSummary } from "./controlOfficeTypes";
 import { mockGetControlOfficeSummary } from "./controlOfficeMock";
 import { fetchLiveTrainStatus } from "./railradarClient";
 import { mapToExistingTrainStatus } from "./railradarNormalize";
+import {
+  fetchLiveStationBoard,
+  normalizeStationTrain,
+} from "./railradarStationClient";
 
+import type {
+  LiveTrainRow,
+  CongestionPrediction,
+  PlatformConflict,
+  OperationalAlert,
+  OperationalRecommendation,
+  TimelineEvent,
+} from "./controlOfficeTypes";
 // ---------------------------------------------------------------------------
 // CRITICAL FALLBACK LAYER
 //
@@ -113,13 +125,580 @@ export async function listTrains(): Promise<ProviderResult<TrainSummary[]>> {
 // /api/operations/control-office endpoint; until it exists (or if it fails),
 // this automatically and silently falls back to Control Office demo data.
 // ---------------------------------------------------------------------------
-export async function getControlOfficeSummary(): Promise<ProviderResult<ControlOfficeSummary>> {
-  return withFallback(
-    () => api.apiGetControlOfficeSummary(),
-    () => mockGetControlOfficeSummary()
+function minutesUntil(time: string | null): number {
+  if (!time) return 999;
+
+  const now = new Date();
+
+  const [hours, minutes] = time
+    .split(":")
+    .map(Number);
+
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes)
+  ) {
+    return 999;
+  }
+
+  const target = new Date(now);
+
+  target.setHours(
+    hours,
+    minutes,
+    0,
+    0
+  );
+
+  if (
+    target.getTime() <
+    now.getTime() - 12 * 60 * 60 * 1000
+  ) {
+    target.setDate(
+      target.getDate() + 1
+    );
+  }
+
+  return Math.max(
+    0,
+    Math.round(
+      (target.getTime() -
+        now.getTime()) /
+        60000
+    )
   );
 }
 
+function priorityFor(
+  trainName: string,
+  delay: number
+): LiveTrainRow["priority"] {
+  const name = trainName.toLowerCase();
+
+  if (
+    /rajdhani|shatabdi|vande bharat|duronto|tejas/.test(
+      name
+    ) ||
+    delay >= 30
+  ) {
+    return "HIGH";
+  }
+
+  if (
+    /express|superfast|mail/.test(name) ||
+    delay >= 10
+  ) {
+    return "MEDIUM";
+  }
+
+  return "NORMAL";
+}
+
+function statusFor(
+  delay: number
+): LiveTrainRow["status"] {
+  if (delay < 0) return "Recovering";
+
+  if (delay <= 5) return "On Time";
+
+  if (delay <= 20) return "Delayed";
+
+  return "Critical";
+}
+
+function buildLiveControlSummary(
+  stations: Array<
+    Awaited<
+      ReturnType<
+        typeof fetchLiveStationBoard
+      >
+    >
+  >
+): ControlOfficeSummary {
+  const normalized = stations.flatMap(
+    (board) =>
+      board.trains.map((train) =>
+        normalizeStationTrain(
+          train,
+          board.station
+        )
+      )
+  );
+
+  const unique = Array.from(
+    new Map(
+      normalized.map((train) => [
+        `${train.trainNumber}-${train.stationCode}`,
+        train,
+      ])
+    ).values()
+  );
+
+  const upcoming = unique
+    .filter(
+      (train) =>
+        train.liveType !== "departed" &&
+        train.expectedTime
+    )
+    .sort(
+      (a, b) =>
+        minutesUntil(a.expectedTime) -
+        minutesUntil(b.expectedTime)
+    );
+
+  const liveTrains: LiveTrainRow[] =
+    upcoming.map((train) => ({
+      trainNumber: train.trainNumber,
+
+      trainName: train.trainName,
+
+      currentLocation:
+        `${train.stationName} (${train.stationCode})`,
+
+      eta:
+        train.expectedTime ?? "—",
+
+      delayMin:
+        train.delayMinutes,
+
+      // Station-live does not provide telemetry speed.
+      // Do NOT invent a speed value.
+      speedKmph: 0,
+
+      priority:
+        priorityFor(
+          train.trainName,
+          train.delayMinutes
+        ),
+
+      status:
+        statusFor(
+          train.delayMinutes
+        ),
+    }));
+
+  const normalCount =
+    liveTrains.filter(
+      (train) =>
+        train.status === "On Time" ||
+        train.status === "Recovering"
+    ).length;
+
+  const delayedCount =
+    liveTrains.filter(
+      (train) =>
+        train.status === "Delayed"
+    ).length;
+
+  const criticalCount =
+    liveTrains.filter(
+      (train) =>
+        train.status === "Critical"
+    ).length;
+
+  // ---------------------------------------------------------
+  // PLATFORM CONFLICT DETECTION
+  // ---------------------------------------------------------
+
+  const platformGroups =
+    new Map<string, typeof upcoming>();
+
+  for (const train of upcoming) {
+    if (
+      !train.platform ||
+      !train.expectedTime
+    ) {
+      continue;
+    }
+
+    const key =
+      `${train.stationCode}-${train.platform}`;
+
+    const list =
+      platformGroups.get(key) ?? [];
+
+    list.push(train);
+
+    platformGroups.set(
+      key,
+      list
+    );
+  }
+
+  const platformConflicts:
+    PlatformConflict[] = [];
+
+  for (
+    const [key, trains] of
+    platformGroups
+  ) {
+    if (trains.length < 2) continue;
+
+    const ordered = [...trains].sort(
+      (a, b) =>
+        minutesUntil(a.expectedTime) -
+        minutesUntil(b.expectedTime)
+    );
+
+    for (
+      let i = 0;
+      i < ordered.length - 1;
+      i++
+    ) {
+      const first =
+        ordered[i];
+
+      const second =
+        ordered[i + 1];
+
+      const firstMin =
+        minutesUntil(
+          first.expectedTime
+        );
+
+      const secondMin =
+        minutesUntil(
+          second.expectedTime
+        );
+
+      const gap =
+        Math.max(
+          0,
+          secondMin - firstMin
+        );
+
+      if (gap <= 15) {
+        const severity:
+          PlatformConflict["severity"] =
+            gap <= 5
+              ? "HIGH"
+              : gap <= 10
+                ? "MEDIUM"
+                : "LOW";
+
+        platformConflicts.push({
+          id:
+            `live-conflict-${key}-${first.trainNumber}-${second.trainNumber}`,
+
+          station:
+            first.stationName,
+
+          platform:
+            first.platform!,
+
+          trains: [
+            {
+              trainNumber:
+                first.trainNumber,
+
+              trainName:
+                first.trainName,
+
+              eta:
+                first.expectedTime!,
+            },
+
+            {
+              trainNumber:
+                second.trainNumber,
+
+              trainName:
+                second.trainName,
+
+              eta:
+                second.expectedTime!,
+            },
+          ],
+
+          conflictInMinutes:
+            firstMin,
+
+          severity,
+        });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------
+  // CONGESTION
+  // ---------------------------------------------------------
+
+  const congestion:
+    CongestionPrediction[] =
+    stations.map((board) => {
+      const stationTrains =
+        upcoming.filter(
+          (train) =>
+            train.stationCode ===
+              board.station.code &&
+            minutesUntil(
+              train.expectedTime
+            ) <= 60
+        );
+
+      const delayed =
+        stationTrains.filter(
+          (train) =>
+            train.delayMinutes > 5
+        ).length;
+
+      const conflicts =
+        platformConflicts.filter(
+          (conflict) =>
+            conflict.station ===
+            board.station.name
+        ).length;
+
+      const score =
+        stationTrains.length +
+        delayed * 2 +
+        conflicts * 3;
+
+      const level:
+        CongestionPrediction["level"] =
+        score >= 12
+          ? "SEVERE"
+          : score >= 8
+            ? "HIGH"
+            : score >= 4
+              ? "MODERATE"
+              : "LOW";
+
+      return {
+        id:
+          `live-congestion-${board.station.code}`,
+
+        section:
+          `${board.station.name} (${board.station.code})`,
+
+        level,
+
+        predictedInMinutes: 15,
+
+        affectedTrains:
+          stationTrains.length,
+
+        reason:
+          `${stationTrains.length} trains expected within 60 min; ${delayed} currently delayed.`,
+      };
+    });
+
+  // ---------------------------------------------------------
+  // ALERTS
+  // ---------------------------------------------------------
+
+  const alerts:
+    OperationalAlert[] = [];
+
+  for (
+    const train of liveTrains
+      .filter(
+        (train) =>
+          train.delayMin > 5
+      )
+      .slice(0, 8)
+  ) {
+    alerts.push({
+      id:
+        `live-delay-${train.trainNumber}`,
+
+      severity:
+        train.delayMin > 20
+          ? "critical"
+          : "warning",
+
+      trainNumber:
+        train.trainNumber,
+
+      message:
+        `Train ${train.trainNumber} is currently running ${train.delayMin} minutes late at ${train.currentLocation}.`,
+
+      predictedTime:
+        train.eta,
+    });
+  }
+
+  for (
+    const conflict of
+    platformConflicts.slice(0, 6)
+  ) {
+    alerts.push({
+      id:
+        `live-alert-${conflict.id}`,
+
+      severity:
+        conflict.severity === "HIGH"
+          ? "critical"
+          : "warning",
+
+      section:
+        `${conflict.station}, Platform ${conflict.platform}`,
+
+      message:
+        `Potential platform conflict between ${conflict.trains[0].trainNumber} and ${conflict.trains[1].trainNumber}.`,
+
+      predictedTime:
+        conflict.trains[0].eta,
+    });
+  }
+
+  if (alerts.length === 0) {
+    alerts.push({
+      id: "live-ok",
+
+      severity: "success",
+
+      message:
+        "No immediate delay or platform-conflict alerts detected in the monitored window.",
+    });
+  }
+
+  // ---------------------------------------------------------
+  // RECOMMENDATIONS
+  // ---------------------------------------------------------
+
+  const recommendations:
+    OperationalRecommendation[] =
+    platformConflicts
+      .slice(0, 5)
+      .map(
+        (conflict, index) => ({
+          id:
+            `live-rec-${index}`,
+
+          relatedTo:
+            `${conflict.station} · Platform ${conflict.platform}`,
+
+          message:
+            `Consider reviewing platform readiness for Trains ${conflict.trains[0].trainNumber} and ${conflict.trains[1].trainNumber}; predicted conflict in ${conflict.conflictInMinutes} minutes.`,
+        })
+      );
+
+  // ---------------------------------------------------------
+  // TIMELINE
+  // ---------------------------------------------------------
+
+  const timeline:
+    TimelineEvent[] =
+    upcoming
+      .slice(0, 8)
+      .map((train) => ({
+        time:
+          train.expectedTime!,
+
+        description:
+          `Train ${train.trainNumber} (${train.trainName}) expected at ${train.stationName}${train.platform ? `, Platform ${train.platform}` : ""}.`,
+
+        type:
+          platformConflicts.some(
+            (conflict) =>
+              conflict.trains.some(
+                (item) =>
+                  item.trainNumber ===
+                  train.trainNumber
+              )
+          )
+            ? "conflict"
+            : "arrival",
+      }));
+
+  return {
+    divisionName:
+      process.env.CONTROL_OFFICE_DIVISION ??
+      "Khurda Road Division",
+
+    networkName:
+      "East Coast Railway · RailCast Live",
+
+    generatedAt:
+      new Date().toISOString(),
+
+    normalCount,
+
+    delayedCount,
+
+    criticalCount,
+
+    predictedConflictsCount:
+      platformConflicts.length,
+
+    liveTrains,
+
+    congestion,
+
+    platformConflicts,
+
+    alerts,
+
+    recommendations,
+
+    timeline,
+  };
+}
+
+export async function getControlOfficeSummary(): Promise<
+  ProviderResult<ControlOfficeSummary>
+> {
+  const stationCodes =
+    (
+      process.env.CONTROL_OFFICE_STATIONS ??
+      "BBS,CTC,KUR"
+    )
+      .split(",")
+      .map((code) =>
+        code.trim().toUpperCase()
+      )
+      .filter(Boolean);
+
+  try {
+    const boards =
+      await Promise.all(
+        stationCodes.map(
+          (code) =>
+            fetchLiveStationBoard(
+              code,
+              {
+                hours: 2,
+                includeIntermediate: true,
+              }
+            )
+        )
+      );
+
+    if (
+      boards.length === 0 ||
+      boards.every(
+        (board) =>
+          board.trains.length === 0
+      )
+    ) {
+      throw new Error(
+        "No live station data returned"
+      );
+    }
+
+    return {
+      data:
+        buildLiveControlSummary(
+          boards
+        ),
+
+      source: "live",
+
+      fetchedAt:
+        nowISO(),
+    };
+  } catch {
+    // Safe fallback to the existing demo dashboard.
+    return withFallback(
+      () =>
+        api.apiGetControlOfficeSummary(),
+
+      () =>
+        mockGetControlOfficeSummary()
+    );
+  }
+}
 /** Convenience helper for loading everything a train dashboard page needs in one call. */
 export async function getFullTrainDashboard(trainNumber: string) {
   const [status, route, stationETAs, prediction] = await Promise.all([
