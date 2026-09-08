@@ -1,5 +1,6 @@
 from pathlib import Path
 from catboost import CatBoostRegressor
+import pandas as pd
 
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "RailCast_AI_CatBoost_V2.cbm"
@@ -26,13 +27,13 @@ FEATURES = [
     "historical_std_delay_change",
 ]
 
-CATEGORICAL_FEATURES = [
-    "train",
-    "station",
-    "next_station",
-]
-
-
 def predict_delay(input_data):
-    prediction = model.predict(input_data)
+    # Convert dictionary into a DataFrame
+    df = pd.DataFrame([input_data])
+
+    # Force exact feature order expected by CatBoost
+    df = df[FEATURES]
+
+    prediction = model.predict(df)
+
     return max(0, float(prediction[0]))
