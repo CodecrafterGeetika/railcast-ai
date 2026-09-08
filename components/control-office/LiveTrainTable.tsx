@@ -46,7 +46,11 @@ export function LiveTrainTable({ trains }: { trains: LiveTrainRow[] }) {
                 <TableCell className={`font-mono font-medium ${delayColor(t.delayMin)}`}>
                   {formatDelay(t.delayMin)}
                 </TableCell>
-                <TableCell className="font-mono text-muted-foreground">{t.speedKmph} km/h</TableCell>
+                <TableCell className="font-mono text-muted-foreground">
+  {t.speedKmph > 0
+    ? `${t.speedKmph} km/h`
+    : "—"}
+</TableCell>
                 <TableCell>
                   <PriorityBadge priority={t.priority} />
                 </TableCell>
