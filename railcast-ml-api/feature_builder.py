@@ -1,241 +1,109 @@
-from datetime import datetime
 from pathlib import Path
-
 import pandas as pd
+from datetime import datetime
 
 
-DATA_PATH = (
-    Path(__file__).resolve().parent
-    / "data"
-    / "train_details.csv"
-)
+BASE_DIR = Path(__file__).resolve().parent
+CSV_PATH = BASE_DIR / "train_details.csv"
+
+train_details = pd.read_csv(CSV_PATH)
 
 
-# Load schedule data once when the server starts.
-schedule_df = pd.read_csv(DATA_PATH)
+def normalize_train_number(value):
+    return str(value).replace(".0", "").strip()
 
 
-# Normalize column names.
-schedule_df.columns = [
-    str(column).strip()
-    for column in schedule_df.columns
-]
+def time_to_minutes(value):
+    if pd.isna(value):
+        return None
 
+    value = str(value).strip()
 
-def normalize_train_number(value) -> str:
-    """
-    Converts 1007 / 1007.0 into '1007'.
-    """
     try:
-        return str(int(float(value)))
+        hour, minute = map(int, value.split(":")[:2])
+        return hour * 60 + minute
     except Exception:
-        return str(value).strip()
+        return None
 
 
-def get_train_route(train_number: str):
-    """
-    Return the timetable rows for a train.
-    """
+def minutes_to_time(minutes):
+    minutes = int(round(minutes)) % (24 * 60)
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
-    train = normalize_train_number(train_number)
 
-    df = schedule_df[
-        schedule_df["Train No"].apply(normalize_train_number) == train
+def build_features(train_number, current_station, departure_delay):
+    train_number = normalize_train_number(train_number)
+    current_station = str(current_station).strip().upper()
+
+    train_data = train_details[
+        train_details["Train No"].apply(normalize_train_number)
+        == train_number
     ].copy()
 
-    if df.empty:
-        raise ValueError(
-            f"Train {train_number} was not found in schedule data."
-        )
+    if train_data.empty:
+        raise ValueError(f"Train {train_number} not found")
 
-    df = df.sort_values("SEQ")
+    train_data = train_data.sort_values("SEQ").reset_index(drop=True)
 
-    return df
-
-
-def get_next_station(train_number: str, current_station: str):
-    """
-    Find the next station after current_station.
-    """
-
-    route = get_train_route(train_number)
-
-    current_station = current_station.upper().strip()
-
-    matches = route[
-        route["Station Code"].astype(str).str.upper().str.strip()
+    current_matches = train_data[
+        train_data["Station Code"].astype(str).str.upper()
         == current_station
     ]
 
-    if matches.empty:
+    if current_matches.empty:
         raise ValueError(
-            f"Station {current_station} was not found "
-            f"on train {train_number}."
+            f"Station {current_station} not found on train {train_number}"
         )
 
-    current_index = matches.index[0]
+    current_index = current_matches.index[0]
 
-    positions = list(route.index)
-    position = positions.index(current_index)
+    if current_index >= len(train_data) - 1:
+        raise ValueError("No next station available")
 
-    if position >= len(positions) - 1:
-        raise ValueError(
-            f"{train_number} has no next station after {current_station}."
-        )
+    current_row = train_data.iloc[current_index]
+    next_row = train_data.iloc[current_index + 1]
 
-    next_row = route.iloc[position + 1]
+    next_station = str(next_row["Station Code"]).strip().upper()
 
-    return next_row
+    departure_time = time_to_minutes(current_row["Departure time"])
+    next_arrival_time = time_to_minutes(next_row["Arrival time"])
 
+    if departure_time is None or next_arrival_time is None:
+        raise ValueError("Invalid timetable time")
 
-def time_to_minutes(value: str) -> int:
-    """
-    Convert HH:MM or HH:MM:SS into minutes from midnight.
-    """
+    scheduled_travel_min = next_arrival_time - departure_time
 
-    value = str(value)
+    if scheduled_travel_min < 0:
+        scheduled_travel_min += 24 * 60
 
-    if not value or value == "nan":
-        return 0
-
-    parts = value.split(":")
-
-    hour = int(parts[0])
-    minute = int(parts[1])
-
-    return hour * 60 + minute
-
-
-def scheduled_travel_minutes(current_row, next_row) -> float:
-    """
-    Calculate scheduled travel time between two stations.
-    Handles midnight crossing.
-    """
-
-    departure = time_to_minutes(
-        current_row["Departure Time"]
-    )
-
-    arrival = time_to_minutes(
-        next_row["Arrival time"]
-    )
-
-    travel = arrival - departure
-
-    if travel < 0:
-        travel += 24 * 60
-
-    return float(travel)
-
-
-def build_features(
-    train_number: str,
-    current_station: str,
-    departure_delay: float,
-    now: datetime | None = None,
-):
-    """
-    Build the exact 16 CatBoost V2 features.
-
-    Historical features are currently initialized from the
-    available live input when no historical feature store exists.
-
-    Replace the historical section with your team's historical
-    feature-generation pipeline when available.
-    """
-
-    if now is None:
-        now = datetime.now()
-
-    route = get_train_route(train_number)
-
-    current_station = current_station.upper().strip()
-
-    matches = route[
-        route["Station Code"].astype(str).str.upper().str.strip()
-        == current_station
-    ]
-
-    if matches.empty:
-        raise ValueError(
-            f"Station {current_station} not found for train {train_number}."
-        )
-
-    current_row = matches.iloc[0]
-
-    next_row = get_next_station(
-        train_number,
-        current_station
-    )
-
-    next_station = str(
-        next_row["Station Code"]
-    ).strip().upper()
-
-    travel_min = scheduled_travel_minutes(
-        current_row,
-        next_row
-    )
-
-    dep_delay = float(departure_delay)
-
-    # ---------------------------------------------------------
-    # Historical features
-    # ---------------------------------------------------------
-    #
-    # These defaults make the API operational immediately.
-    #
-    # IMPORTANT:
-    # Replace these with the historical feature-generation
-    # logic used while training CatBoost V2 as soon as your
-    # friend's feature-engineering code is available.
-    #
-
-    historical_mean_delay = 0.0
-    historical_median_delay = 0.0
-    historical_std_delay = 0.0
-
-    historical_mean_dep_delay = dep_delay
-    historical_observations = 1
-
-    historical_mean_delay_change = -dep_delay
-    historical_median_delay_change = -dep_delay
-    historical_std_delay_change = 0.0
+    now = datetime.now()
 
     features = {
-        "train": normalize_train_number(train_number),
+        "train": train_number,
         "station": current_station,
         "next_station": next_station,
 
-        "dep_delay": dep_delay,
-        "scheduled_travel_min": travel_min,
+        "dep_delay": float(departure_delay),
+        "scheduled_travel_min": float(scheduled_travel_min),
 
         "day_of_week": now.weekday(),
-        "departure_hour": now.hour,
-        "departure_minute": now.minute,
+        "departure_hour": departure_time // 60,
+        "departure_minute": departure_time % 60,
 
-        "historical_mean_delay": historical_mean_delay,
-        "historical_median_delay": historical_median_delay,
-        "historical_std_delay": historical_std_delay,
-
-        "historical_mean_dep_delay":
-            historical_mean_dep_delay,
-
-        "historical_observations":
-            historical_observations,
-
-        "historical_mean_delay_change":
-            historical_mean_delay_change,
-
-        "historical_median_delay_change":
-            historical_median_delay_change,
-
-        "historical_std_delay_change":
-            historical_std_delay_change,
+        # Historical features are defaults until real historical
+        # delay-training data is connected.
+        "historical_mean_delay": 0.0,
+        "historical_median_delay": 0.0,
+        "historical_std_delay": 0.0,
+        "historical_mean_dep_delay": float(departure_delay),
+        "historical_observations": 1.0,
+        "historical_mean_delay_change": 0.0,
+        "historical_median_delay_change": 0.0,
+        "historical_std_delay_change": 0.0,
     }
 
-    scheduled_arrival = str(
-        next_row["Arrival time"]
-    )
-
-    return features, next_station, scheduled_arrival
+    return features, {
+        "next_station": next_station,
+        "scheduled_arrival": next_row["Arrival time"],
+        "scheduled_travel_min": scheduled_travel_min,
+    }
