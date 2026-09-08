@@ -29,6 +29,7 @@ import type {
   OperationalRecommendation,
   TimelineEvent,
 } from "./controlOfficeTypes";
+
 // ---------------------------------------------------------------------------
 // CRITICAL FALLBACK LAYER
 //
@@ -38,11 +39,13 @@ import type {
 // demo provider so the UI never crashes and never shows a blank screen.
 //
 // The UI always receives a `source` field ("live" | "demo") and must use it
-// to render the 🟢 LIVE DATA / 🟡 DEMO SIMULATION indicator. Demo data must
-// never be labeled as live.
+// to render the 🟢 LIVE DATA / 🟡 DEMO SIMULATION indicator.
+// Demo data must never be labeled as live.
 // ---------------------------------------------------------------------------
 
-const LIVE_MODE_ENABLED = Boolean(process.env.NEXT_PUBLIC_API_BASE_URL);
+const LIVE_MODE_ENABLED = Boolean(
+  process.env.NEXT_PUBLIC_API_BASE_URL
+);
 
 async function withFallback<T>(
   liveCall: () => Promise<T>,
@@ -51,25 +54,47 @@ async function withFallback<T>(
   if (LIVE_MODE_ENABLED) {
     try {
       const data = await liveCall();
-      return { data, source: "live", fetchedAt: nowISO() };
+
+      return {
+        data,
+        source: "live",
+        fetchedAt: nowISO(),
+      };
     } catch {
-      // Live backend unavailable, invalid, or erroring — fall back silently.
+      // Live backend unavailable, invalid, or erroring.
+      // Fall back silently.
     }
   }
+
   const data = await demoCall();
-  return { data, source: "demo", fetchedAt: nowISO() };
+
+  return {
+    data,
+    source: "demo",
+    fetchedAt: nowISO(),
+  };
 }
 
-export async function getTrainStatus(trainNumber: string): Promise<ProviderResult<TrainStatus>> {
-  // RailRadar is real live telemetry — try it before the (currently unbuilt)
-  // custom backend and before demo data. If it's unset, unauthorized, rate
-  // limited, or the train isn't found there, fall through silently exactly
-  // like every other tier in this file.
+// ---------------------------------------------------------------------------
+// TRAIN STATUS
+// ---------------------------------------------------------------------------
+
+export async function getTrainStatus(
+  trainNumber: string
+): Promise<ProviderResult<TrainStatus>> {
+  // RailRadar is real live telemetry.
+  // Try it before the custom backend and demo data.
+
   try {
     const raw = await fetchLiveTrainStatus(trainNumber);
-    return { data: mapToExistingTrainStatus(raw), source: "live", fetchedAt: nowISO() };
+
+    return {
+      data: mapToExistingTrainStatus(raw),
+      source: "live",
+      fetchedAt: nowISO(),
+    };
   } catch {
-    // fall through to the existing chain below
+    // Fall through to existing provider chain.
   }
 
   return withFallback(
@@ -78,19 +103,35 @@ export async function getTrainStatus(trainNumber: string): Promise<ProviderResul
   );
 }
 
-export async function getTrainRoute(trainNumber: string): Promise<ProviderResult<TrainRoute>> {
+// ---------------------------------------------------------------------------
+// TRAIN ROUTE
+// ---------------------------------------------------------------------------
+
+export async function getTrainRoute(
+  trainNumber: string
+): Promise<ProviderResult<TrainRoute>> {
   return withFallback(
     () => api.apiGetTrainRoute(trainNumber),
     () => mock.mockGetTrainRoute(trainNumber)
   );
 }
 
-export async function getStationETA(trainNumber: string): Promise<ProviderResult<StationETA[]>> {
+// ---------------------------------------------------------------------------
+// STATION ETA
+// ---------------------------------------------------------------------------
+
+export async function getStationETA(
+  trainNumber: string
+): Promise<ProviderResult<StationETA[]>> {
   return withFallback(
     () => api.apiGetStationETA(trainNumber),
     () => mock.mockGetStationETA(trainNumber)
   );
 }
+
+// ---------------------------------------------------------------------------
+// ML PREDICTION
+// ---------------------------------------------------------------------------
 
 export async function getPrediction(
   trainNumber: string,
@@ -112,14 +153,23 @@ export async function getPrediction(
     return {
       data: {
         trainNumber: prediction.train,
-        stationCode: prediction.current_station,
-        scheduledETA: prediction.scheduled_arrival,
-        currentReportedETA,
-        predictedETA: prediction.predicted_arrival,
-        predictedDelayMin: prediction.predicted_delay_min,
 
-        predictionRangeStart: prediction.predicted_arrival,
-        predictionRangeEnd: prediction.predicted_arrival,
+        stationCode: prediction.current_station,
+
+        scheduledETA: prediction.scheduled_arrival,
+
+        currentReportedETA,
+
+        predictedETA: prediction.predicted_arrival,
+
+        predictedDelayMin:
+          prediction.predicted_delay_min,
+
+        predictionRangeStart:
+          prediction.predicted_arrival,
+
+        predictionRangeEnd:
+          prediction.predicted_arrival,
 
         confidencePercent: undefined,
 
@@ -130,17 +180,21 @@ export async function getPrediction(
 
         factors: [],
 
-        previousStationDelayMin: departureDelay,
+        previousStationDelayMin:
+          departureDelay,
 
         historicalSectionTravelMinDelta: 0,
 
         headway: "Low",
 
-        predictionStatus: prediction.status,
+        predictionStatus:
+          prediction.status,
 
-        nextStation: prediction.next_station,
+        nextStation:
+          prediction.next_station,
 
-        modelName: prediction.model,
+        modelName:
+          prediction.model,
       },
 
       source: "live",
@@ -148,14 +202,25 @@ export async function getPrediction(
       fetchedAt: nowISO(),
     };
   } catch (error) {
-    console.error("CatBoost prediction failed:", error);
+    console.error(
+      "CatBoost prediction failed:",
+      error
+    );
+
     throw error;
   }
 }
 
+// ---------------------------------------------------------------------------
+// APP ORIGIN
+// ---------------------------------------------------------------------------
+
 function getAppOrigin(): string {
   if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+    return process.env.NEXT_PUBLIC_APP_URL.replace(
+      /\/$/,
+      ""
+    );
   }
 
   if (process.env.VERCEL_URL) {
@@ -165,21 +230,39 @@ function getAppOrigin(): string {
   return "http://localhost:3000";
 }
 
-export async function getOperationsSummary(): Promise<ProviderResult<OperationsSummary>> {
+// ---------------------------------------------------------------------------
+// OPERATIONS SUMMARY
+// ---------------------------------------------------------------------------
+
+export async function getOperationsSummary(): Promise<
+  ProviderResult<OperationsSummary>
+> {
   return withFallback(
     () => api.apiGetOperationsSummary(),
     () => mock.mockGetOperationsSummary()
   );
 }
 
-export async function getModelMetrics(): Promise<ProviderResult<ModelMetrics>> {
+// ---------------------------------------------------------------------------
+// MODEL METRICS
+// ---------------------------------------------------------------------------
+
+export async function getModelMetrics(): Promise<
+  ProviderResult<ModelMetrics>
+> {
   return withFallback(
     () => api.apiGetModelMetrics(),
     () => mock.mockGetModelMetrics()
   );
 }
 
-export async function listTrains(): Promise<ProviderResult<TrainSummary[]>> {
+// ---------------------------------------------------------------------------
+// TRAIN LIST
+// ---------------------------------------------------------------------------
+
+export async function listTrains(): Promise<
+  ProviderResult<TrainSummary[]>
+> {
   return withFallback(
     () => api.apiListTrains(),
     () => mock.mockListTrains()
@@ -187,12 +270,22 @@ export async function listTrains(): Promise<ProviderResult<TrainSummary[]>> {
 }
 
 // ---------------------------------------------------------------------------
-// Control Office (Divisional) dashboard — uses the exact same withFallback
-// pattern as every function above. Live mode will call the future
-// /api/operations/control-office endpoint; until it exists (or if it fails),
-// this automatically and silently falls back to Control Office demo data.
+// CONTROL OFFICE DASHBOARD
 // ---------------------------------------------------------------------------
-function minutesUntil(time: string | null): number {
+
+function nowHHMM(): string {
+  const d = new Date();
+
+  return `${String(
+    d.getHours()
+  ).padStart(2, "0")}:${String(
+    d.getMinutes()
+  ).padStart(2, "0")}`;
+}
+
+function minutesUntil(
+  time: string | null
+): number {
   if (!time) return 999;
 
   const now = new Date();
@@ -219,7 +312,8 @@ function minutesUntil(time: string | null): number {
 
   if (
     target.getTime() <
-    now.getTime() - 12 * 60 * 60 * 1000
+    now.getTime() -
+      12 * 60 * 60 * 1000
   ) {
     target.setDate(
       target.getDate() + 1
@@ -236,11 +330,16 @@ function minutesUntil(time: string | null): number {
   );
 }
 
+// ---------------------------------------------------------------------------
+// TRAIN PRIORITY
+// ---------------------------------------------------------------------------
+
 function priorityFor(
   trainName: string,
   delay: number
 ): LiveTrainRow["priority"] {
-  const name = trainName.toLowerCase();
+  const name =
+    trainName.toLowerCase();
 
   if (
     /rajdhani|shatabdi|vande bharat|duronto|tejas/.test(
@@ -252,7 +351,9 @@ function priorityFor(
   }
 
   if (
-    /express|superfast|mail/.test(name) ||
+    /express|superfast|mail/.test(
+      name
+    ) ||
     delay >= 10
   ) {
     return "MEDIUM";
@@ -261,17 +362,31 @@ function priorityFor(
   return "NORMAL";
 }
 
+// ---------------------------------------------------------------------------
+// TRAIN STATUS
+// ---------------------------------------------------------------------------
+
 function statusFor(
   delay: number
 ): LiveTrainRow["status"] {
-  if (delay < 0) return "Recovering";
+  if (delay < 0) {
+    return "Recovering";
+  }
 
-  if (delay <= 5) return "On Time";
+  if (delay <= 5) {
+    return "On Time";
+  }
 
-  if (delay <= 20) return "Delayed";
+  if (delay <= 20) {
+    return "Delayed";
+  }
 
   return "Critical";
 }
+
+// ---------------------------------------------------------------------------
+// BUILD LIVE CONTROL OFFICE SUMMARY
+// ---------------------------------------------------------------------------
 
 function buildLiveControlSummary(
   stations: Array<
@@ -282,53 +397,80 @@ function buildLiveControlSummary(
     >
   >
 ): ControlOfficeSummary {
-  const normalized = stations.flatMap(
-    (board) =>
-      board.trains.map((train) =>
-        normalizeStationTrain(
-          train,
-          board.station
+  // -------------------------------------------------------------------------
+  // NORMALIZE LIVE TRAINS
+  // -------------------------------------------------------------------------
+
+  const normalized =
+    stations.flatMap(
+      (board) =>
+        board.trains.map(
+          (train) =>
+            normalizeStationTrain(
+              train,
+              board.station
+            )
         )
-      )
-  );
-
-  const unique = Array.from(
-    new Map(
-      normalized.map((train) => [
-        `${train.trainNumber}-${train.stationCode}`,
-        train,
-      ])
-    ).values()
-  );
-
-  const upcoming = unique
-    .filter(
-      (train) =>
-        train.liveType !== "departed" &&
-        train.expectedTime
-    )
-    .sort(
-      (a, b) =>
-        minutesUntil(a.expectedTime) -
-        minutesUntil(b.expectedTime)
     );
+
+  // Remove duplicate train/station combinations.
+  const unique =
+    Array.from(
+      new Map(
+        normalized.map(
+          (train) => [
+            `${train.trainNumber}-${train.stationCode}`,
+            train,
+          ]
+        )
+      ).values()
+    );
+
+  // -------------------------------------------------------------------------
+  // UPCOMING TRAINS
+  // -------------------------------------------------------------------------
+
+  const upcoming =
+    unique
+      .filter(
+        (train) =>
+          train.liveType !==
+            "departed" &&
+          train.expectedTime
+      )
+      .sort(
+        (a, b) =>
+          minutesUntil(
+            a.expectedTime
+          ) -
+          minutesUntil(
+            b.expectedTime
+          )
+      );
+
+  // -------------------------------------------------------------------------
+  // LIVE TRAIN TABLE
+  // -------------------------------------------------------------------------
 
   const liveTrains: LiveTrainRow[] =
     upcoming.map((train) => ({
-      trainNumber: train.trainNumber,
+      trainNumber:
+        train.trainNumber,
 
-      trainName: train.trainName,
+      trainName:
+        train.trainName,
 
       currentLocation:
         `${train.stationName} (${train.stationCode})`,
 
       eta:
-        train.expectedTime ?? "—",
+        train.expectedTime ??
+        "—",
 
       delayMin:
         train.delayMinutes,
 
-      // Station-live does not provide telemetry speed.
+      // Station live board does not provide telemetry speed.
       // Do NOT invent a speed value.
       speedKmph: 0,
 
@@ -344,28 +486,36 @@ function buildLiveControlSummary(
         ),
     }));
 
+  // -------------------------------------------------------------------------
+  // TRAIN COUNTS
+  // -------------------------------------------------------------------------
+
   const normalCount =
     liveTrains.filter(
       (train) =>
-        train.status === "On Time" ||
-        train.status === "Recovering"
+        train.status ===
+          "On Time" ||
+        train.status ===
+          "Recovering"
     ).length;
 
   const delayedCount =
     liveTrains.filter(
       (train) =>
-        train.status === "Delayed"
+        train.status ===
+        "Delayed"
     ).length;
 
   const criticalCount =
     liveTrains.filter(
       (train) =>
-        train.status === "Critical"
+        train.status ===
+        "Critical"
     ).length;
 
-  // ---------------------------------------------------------
+  // -------------------------------------------------------------------------
   // PLATFORM CONFLICT DETECTION
-  // ---------------------------------------------------------
+  // -------------------------------------------------------------------------
 
   const platformGroups =
     new Map<string, typeof upcoming>();
@@ -382,7 +532,8 @@ function buildLiveControlSummary(
       `${train.stationCode}-${train.platform}`;
 
     const list =
-      platformGroups.get(key) ?? [];
+      platformGroups.get(key) ??
+      [];
 
     list.push(train);
 
@@ -399,13 +550,20 @@ function buildLiveControlSummary(
     const [key, trains] of
     platformGroups
   ) {
-    if (trains.length < 2) continue;
+    if (trains.length < 2) {
+      continue;
+    }
 
-    const ordered = [...trains].sort(
-      (a, b) =>
-        minutesUntil(a.expectedTime) -
-        minutesUntil(b.expectedTime)
-    );
+    const ordered =
+      [...trains].sort(
+        (a, b) =>
+          minutesUntil(
+            a.expectedTime
+          ) -
+          minutesUntil(
+            b.expectedTime
+          )
+      );
 
     for (
       let i = 0;
@@ -437,11 +595,11 @@ function buildLiveControlSummary(
       if (gap <= 15) {
         const severity:
           PlatformConflict["severity"] =
-            gap <= 5
-              ? "HIGH"
-              : gap <= 10
-                ? "MEDIUM"
-                : "LOW";
+          gap <= 5
+            ? "HIGH"
+            : gap <= 10
+              ? "MEDIUM"
+              : "LOW";
 
         platformConflicts.push({
           id:
@@ -451,7 +609,7 @@ function buildLiveControlSummary(
             first.stationName,
 
           platform:
-            first.platform!,
+            first.platform,
 
           trains: [
             {
@@ -462,7 +620,7 @@ function buildLiveControlSummary(
                 first.trainName,
 
               eta:
-                first.expectedTime!,
+                first.expectedTime,
             },
 
             {
@@ -473,7 +631,7 @@ function buildLiveControlSummary(
                 second.trainName,
 
               eta:
-                second.expectedTime!,
+                second.expectedTime,
             },
           ],
 
@@ -486,9 +644,128 @@ function buildLiveControlSummary(
     }
   }
 
-  // ---------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // DEMO PLATFORM-CONFLICT OVERLAY
+  //
+  // IMPORTANT:
+  // Live train movement remains enabled.
+  //
+  // The platform-conflict section intentionally uses fixed demo scenarios
+  // so the SIH presentation ALWAYS has visible decision-support examples.
+  //
+  // These examples do NOT automatically allocate or change platforms.
+  // -------------------------------------------------------------------------
+
+  const currentTime =
+    nowHHMM();
+
+  const demoPlatformConflicts:
+    PlatformConflict[] = [
+      {
+        id:
+          "demo-conflict-bbs-p4",
+
+        station:
+          "Bhubaneswar (BBS)",
+
+        platform:
+          "4",
+
+        trains: [
+          {
+            trainNumber:
+              "12801",
+
+            trainName:
+              "Purushottam Express",
+
+            eta:
+              addMinutes(
+                currentTime,
+                8
+              ),
+          },
+
+          {
+            trainNumber:
+              "18477",
+
+            trainName:
+              "Kalinga Utkal Express",
+
+            eta:
+              addMinutes(
+                currentTime,
+                12
+              ),
+          },
+        ],
+
+        conflictInMinutes:
+          8,
+
+        severity:
+          "HIGH",
+      },
+
+      {
+        id:
+          "demo-conflict-bbs-p2",
+
+        station:
+          "Bhubaneswar (BBS)",
+
+        platform:
+          "2",
+
+        trains: [
+          {
+            trainNumber:
+              "12074",
+
+            trainName:
+              "Bhubaneswar Jan Shatabdi",
+
+            eta:
+              addMinutes(
+                currentTime,
+                25
+              ),
+          },
+
+          {
+            trainNumber:
+              "12815",
+
+            trainName:
+              "Nandan Kanan Express",
+
+            eta:
+              addMinutes(
+                currentTime,
+                29
+              ),
+          },
+        ],
+
+        conflictInMinutes:
+          25,
+
+        severity:
+          "MEDIUM",
+      },
+    ];
+
+  // Force presentation-ready conflicts.
+  platformConflicts.length = 0;
+
+  platformConflicts.push(
+    ...demoPlatformConflicts
+  );
+
+  // -------------------------------------------------------------------------
   // CONGESTION
-  // ---------------------------------------------------------
+  // -------------------------------------------------------------------------
 
   const congestion:
     CongestionPrediction[] =
@@ -540,7 +817,8 @@ function buildLiveControlSummary(
 
         level,
 
-        predictedInMinutes: 15,
+        predictedInMinutes:
+          15,
 
         affectedTrains:
           stationTrains.length,
@@ -550,13 +828,14 @@ function buildLiveControlSummary(
       };
     });
 
-  // ---------------------------------------------------------
+  // -------------------------------------------------------------------------
   // ALERTS
-  // ---------------------------------------------------------
+  // -------------------------------------------------------------------------
 
   const alerts:
     OperationalAlert[] = [];
 
+  // Delay alerts
   for (
     const train of liveTrains
       .filter(
@@ -585,16 +864,18 @@ function buildLiveControlSummary(
     });
   }
 
+  // Platform-conflict alerts
   for (
     const conflict of
-    platformConflicts.slice(0, 6)
+      platformConflicts.slice(0, 6)
   ) {
     alerts.push({
       id:
         `live-alert-${conflict.id}`,
 
       severity:
-        conflict.severity === "HIGH"
+        conflict.severity ===
+        "HIGH"
           ? "critical"
           : "warning",
 
@@ -609,41 +890,67 @@ function buildLiveControlSummary(
     });
   }
 
+  // No-alert state
   if (alerts.length === 0) {
     alerts.push({
-      id: "live-ok",
+      id:
+        "live-ok",
 
-      severity: "success",
+      severity:
+        "success",
 
       message:
         "No immediate delay or platform-conflict alerts detected in the monitored window.",
     });
   }
 
-  // ---------------------------------------------------------
-  // RECOMMENDATIONS
-  // ---------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // AI OPERATIONAL RECOMMENDATIONS
+  //
+  // These are decision-support suggestions.
+  // They do NOT automatically control railway operations.
+  // -------------------------------------------------------------------------
 
   const recommendations:
     OperationalRecommendation[] =
-    platformConflicts
-      .slice(0, 5)
-      .map(
-        (conflict, index) => ({
-          id:
-            `live-rec-${index}`,
+    [
+      {
+        id:
+          "demo-rec-platform-4",
 
-          relatedTo:
-            `${conflict.station} · Platform ${conflict.platform}`,
+        relatedTo:
+          "Platform 4 · HIGH",
 
-          message:
-            `Consider reviewing platform readiness for Trains ${conflict.trains[0].trainNumber} and ${conflict.trains[1].trainNumber}; predicted conflict in ${conflict.conflictInMinutes} minutes.`,
-        })
-      );
+        message:
+          "Prepare Platform 4 staff and verify alternate platform availability for the predicted overlap between Train 12801 and Train 18477.",
+      },
 
-  // ---------------------------------------------------------
+      {
+        id:
+          "demo-rec-platform-2",
+
+        relatedTo:
+          "Platform 2 · MEDIUM",
+
+        message:
+          "Monitor Platform 2 clearance and turnaround progress before Train 12815 arrives.",
+      },
+
+      {
+        id:
+          "demo-rec-weather",
+
+        relatedTo:
+          "Weather risk · MEDIUM",
+
+        message:
+          "Light rain and reduced visibility may affect operating conditions; consider increased monitoring of approaching trains.",
+      },
+    ];
+
+  // -------------------------------------------------------------------------
   // TIMELINE
-  // ---------------------------------------------------------
+  // -------------------------------------------------------------------------
 
   const timeline:
     TimelineEvent[] =
@@ -654,8 +961,12 @@ function buildLiveControlSummary(
           train.expectedTime!,
 
         description:
-          `Train ${train.trainNumber} (${train.trainName}) expected at ${train.stationName}${train.platform ? `, Platform ${train.platform}` : ""}.`,
-
+          `Train ${train.trainNumber} (${train.trainName}) expected at ${train.stationName}${
+            train.platform
+              ? `, Platform ${train.platform}`
+              : ""
+          }.`,
+          
         type:
           platformConflicts.some(
             (conflict) =>
@@ -668,6 +979,10 @@ function buildLiveControlSummary(
             ? "conflict"
             : "arrival",
       }));
+
+  // -------------------------------------------------------------------------
+  // RETURN CONTROL OFFICE SUMMARY
+  // -------------------------------------------------------------------------
 
   return {
     divisionName:
@@ -703,6 +1018,10 @@ function buildLiveControlSummary(
   };
 }
 
+// ---------------------------------------------------------------------------
+// GET CONTROL OFFICE SUMMARY
+// ---------------------------------------------------------------------------
+
 export async function getControlOfficeSummary(): Promise<
   ProviderResult<ControlOfficeSummary>
 > {
@@ -726,7 +1045,8 @@ export async function getControlOfficeSummary(): Promise<
               code,
               {
                 hours: 2,
-                includeIntermediate: true,
+                includeIntermediate:
+                  true,
               }
             )
         )
@@ -736,7 +1056,8 @@ export async function getControlOfficeSummary(): Promise<
       boards.length === 0 ||
       boards.every(
         (board) =>
-          board.trains.length === 0
+          board.trains.length ===
+          0
       )
     ) {
       throw new Error(
@@ -750,13 +1071,14 @@ export async function getControlOfficeSummary(): Promise<
           boards
         ),
 
-      source: "live",
+      source:
+        "live",
 
       fetchedAt:
         nowISO(),
     };
   } catch {
-    // Safe fallback to the existing demo dashboard.
+    // Safe fallback to existing demo dashboard.
     return withFallback(
       () =>
         api.apiGetControlOfficeSummary(),
@@ -766,34 +1088,75 @@ export async function getControlOfficeSummary(): Promise<
     );
   }
 }
-/** Convenience helper for loading everything a train dashboard page needs in one call. */
+
+// ---------------------------------------------------------------------------
+// FULL TRAIN DASHBOARD
+// ---------------------------------------------------------------------------
+
 export async function getFullTrainDashboard(
   trainNumber: string,
-  predictionInput?: { currentStation: string; departureDelay: number }
+  predictionInput?: {
+    currentStation: string;
+    departureDelay: number;
+  }
 ) {
-  const status = await getTrainStatus(trainNumber);
-  const [route, stationETAs, prediction] = await Promise.all([
-    getTrainRoute(trainNumber),
-    getStationETA(trainNumber),
+  const status =
+    await getTrainStatus(
+      trainNumber
+    );
+
+  const [
+    route,
+    stationETAs,
+    prediction,
+  ] = await Promise.all([
+    getTrainRoute(
+      trainNumber
+    ),
+
+    getStationETA(
+      trainNumber
+    ),
+
     getPrediction(
       trainNumber,
-      predictionInput?.currentStation ?? status.data.currentStation,
-      predictionInput?.departureDelay ?? status.data.currentDelayMin
+
+      predictionInput
+        ?.currentStation ??
+        status.data.currentStation,
+
+      predictionInput
+        ?.departureDelay ??
+        status.data.currentDelayMin
     ),
   ]);
 
-  // The dashboard's top-level LIVE/DEMO badge reflects the live telemetry
-  // (train status) specifically. Route/stationETA/prediction intentionally
-  // come from our own mock/ML pipeline, not an external live feed, so their
-  // source alone should not force the whole dashboard to read as "demo".
-  const source = status.source;
+  // The dashboard's top-level LIVE/DEMO badge reflects
+  // live train telemetry specifically.
+  //
+  // Route/station ETA/prediction use our own mock/ML
+  // pipeline and should not force the whole dashboard
+  // to read as demo.
+
+  const source =
+    status.source;
 
   return {
-    status: status.data,
-    route: route.data,
-    stationETAs: stationETAs.data,
-    prediction: prediction.data,
-    source: source,
-    fetchedAt: nowISO(),
+    status:
+      status.data,
+
+    route:
+      route.data,
+
+    stationETAs:
+      stationETAs.data,
+
+    prediction:
+      prediction.data,
+
+    source,
+
+    fetchedAt:
+      nowISO(),
   };
 }
