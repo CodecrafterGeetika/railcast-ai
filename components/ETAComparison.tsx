@@ -12,26 +12,39 @@ export function ETAComparison({ prediction }: { prediction: ETAPrediction }) {
       <CardHeader>
         <CardTitle>ETA Comparison</CardTitle>
       </CardHeader>
+
       <CardContent>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-lg border border-border bg-secondary/30 p-5">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Current Railway ETA
             </p>
+
             <p className="mt-2 font-mono text-4xl font-semibold text-foreground">
               {prediction.currentReportedETA}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">Scheduled: {prediction.scheduledETA}</p>
+
+            <p className="mt-1 text-xs text-muted-foreground">
+              Scheduled: {prediction.scheduledETA}
+            </p>
           </div>
+
           <div className="rounded-lg border border-rail-accent/30 bg-rail-accent/[0.07] p-5">
             <p className="text-xs font-medium uppercase tracking-wide text-rail-accent2">
               Our AI ETA
             </p>
+
             <p className="mt-2 font-mono text-4xl font-semibold text-foreground">
               {prediction.predictedETA}
             </p>
+
             <p className="mt-1 text-xs text-muted-foreground">
-              Range {prediction.predictionRangeStart}–{prediction.predictionRangeEnd}
+              Predicted delay:{" "}
+              {prediction.predictedDelayMin == null
+                ? "—"
+                : `${prediction.predictedDelayMin} min`}{" "}
+              · Range {prediction.predictionRangeStart}–
+              {prediction.predictionRangeEnd}
             </p>
           </div>
         </div>
@@ -56,32 +69,89 @@ export function ETAComparison({ prediction }: { prediction: ETAPrediction }) {
                 <Minus className="h-4.5 w-4.5" />
               )}
             </span>
+
             <div>
-              <p className="text-xs text-muted-foreground">Difference vs current railway ETA</p>
+              <p className="text-xs text-muted-foreground">
+                Difference vs current railway ETA
+              </p>
+
               <p className="text-sm font-semibold text-foreground">
                 {formatDifferenceLabel(prediction.differenceMin)}
               </p>
             </div>
           </div>
+
           <div className="flex items-center gap-3 sm:justify-end">
             <div className="text-right">
-              <p className="text-xs text-muted-foreground">Confidence</p>
-              <p className="text-sm font-semibold text-foreground">{prediction.confidencePercent}%</p>
+              <p className="text-xs text-muted-foreground">
+                Confidence
+              </p>
+
+              <p className="text-sm font-semibold text-foreground">
+                {prediction.confidencePercent == null
+                  ? "—"
+                  : `${prediction.confidencePercent}%`}
+              </p>
             </div>
-            <div className="h-2 w-28 overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-rail-accent to-rail-accent2"
-                style={{ width: `${prediction.confidencePercent}%` }}
-              />
-            </div>
+
+            {prediction.confidencePercent != null && (
+              <div className="h-2 w-28 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-rail-accent to-rail-accent2"
+                  style={{
+                    width: `${prediction.confidencePercent}%`,
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
 
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {prediction.nextStation && (
+            <div className="rounded-md border border-border bg-secondary/20 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Next station
+              </p>
+
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {prediction.nextStation}
+              </p>
+            </div>
+          )}
+
+          {prediction.predictionStatus && (
+            <div className="rounded-md border border-border bg-secondary/20 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Prediction status
+              </p>
+
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {prediction.predictionStatus}
+              </p>
+            </div>
+          )}
+
+          {prediction.modelName && (
+            <div className="rounded-md border border-border bg-secondary/20 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Model
+              </p>
+
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {prediction.modelName}
+              </p>
+            </div>
+          )}
+        </div>
+
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          This prediction is not claimed to be more accurate than the railway-reported ETA unless
-          supported by evaluation metrics — see{" "}
-          <span className="font-medium text-foreground">Model Performance</span> for demo evaluation
-          data.
+          This prediction is not claimed to be more accurate than the
+          railway-reported ETA unless supported by evaluation metrics — see{" "}
+          <span className="font-medium text-foreground">
+            Model Performance
+          </span>{" "}
+          for demo evaluation data.
         </p>
       </CardContent>
     </Card>
