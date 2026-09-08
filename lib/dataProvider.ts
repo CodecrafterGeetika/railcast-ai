@@ -13,6 +13,8 @@ import * as mock from "./mockProvider";
 import { nowISO } from "./etaUtils";
 import type { ControlOfficeSummary } from "./controlOfficeTypes";
 import { mockGetControlOfficeSummary } from "./controlOfficeMock";
+import { fetchLiveTrainStatus } from "./railradarClient";
+import { mapToExistingTrainStatus } from "./railradarNormalize";
 
 // ---------------------------------------------------------------------------
 // CRITICAL FALLBACK LAYER
@@ -46,6 +48,17 @@ async function withFallback<T>(
 }
 
 export async function getTrainStatus(trainNumber: string): Promise<ProviderResult<TrainStatus>> {
+  // RailRadar is real live telemetry — try it before the (currently unbuilt)
+  // custom backend and before demo data. If it's unset, unauthorized, rate
+  // limited, or the train isn't found there, fall through silently exactly
+  // like every other tier in this file.
+  try {
+    const raw = await fetchLiveTrainStatus(trainNumber);
+    return { data: mapToExistingTrainStatus(raw), source: "live", fetchedAt: nowISO() };
+  } catch {
+    // fall through to the existing chain below
+  }
+
   return withFallback(
     () => api.apiGetTrainStatus(trainNumber),
     () => mock.mockGetTrainStatus(trainNumber)
@@ -94,6 +107,12 @@ export async function listTrains(): Promise<ProviderResult<TrainSummary[]>> {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Control Office (Divisional) dashboard — uses the exact same withFallback
+// pattern as every function above. Live mode will call the future
+// /api/operations/control-office endpoint; until it exists (or if it fails),
+// this automatically and silently falls back to Control Office demo data.
+// ---------------------------------------------------------------------------
 export async function getControlOfficeSummary(): Promise<ProviderResult<ControlOfficeSummary>> {
   return withFallback(
     () => api.apiGetControlOfficeSummary(),
@@ -110,16 +129,18 @@ export async function getFullTrainDashboard(trainNumber: string) {
     getPrediction(trainNumber),
   ]);
 
-  // If any single call silently fell back to demo, treat the whole dashboard
-  // as demo so the banner is consistent and never mixes live + simulated data.
-  const anyDemo = [status, route, stationETAs, prediction].some((r) => r.source === "demo");
+  // The dashboard's top-level LIVE/DEMO badge reflects the live telemetry
+  // (train status) specifically. Route/stationETA/prediction intentionally
+  // come from our own mock/ML pipeline, not an external live feed, so their
+  // source alone should not force the whole dashboard to read as "demo".
+  const source = status.source;
 
   return {
     status: status.data,
     route: route.data,
     stationETAs: stationETAs.data,
     prediction: prediction.data,
-    source: anyDemo ? ("demo" as const) : ("live" as const),
+    source: source,
     fetchedAt: nowISO(),
   };
 }
