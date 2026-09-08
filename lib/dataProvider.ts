@@ -619,8 +619,7 @@ function buildLiveControlSummary(
               trainName:
                 first.trainName,
 
-              eta:
-                first.expectedTime,
+             eta: first.expectedTime ?? "—",
             },
 
             {
