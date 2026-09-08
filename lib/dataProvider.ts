@@ -11,6 +11,8 @@ import {
 import * as api from "./apiProvider";
 import * as mock from "./mockProvider";
 import { nowISO } from "./etaUtils";
+import type { ControlOfficeSummary } from "./controlOfficeTypes";
+import { mockGetControlOfficeSummary } from "./controlOfficeMock";
 
 // ---------------------------------------------------------------------------
 // CRITICAL FALLBACK LAYER
@@ -89,6 +91,13 @@ export async function listTrains(): Promise<ProviderResult<TrainSummary[]>> {
   return withFallback(
     () => api.apiListTrains(),
     () => mock.mockListTrains()
+  );
+}
+
+export async function getControlOfficeSummary(): Promise<ProviderResult<ControlOfficeSummary>> {
+  return withFallback(
+    () => api.apiGetControlOfficeSummary(),
+    () => mockGetControlOfficeSummary()
   );
 }
 

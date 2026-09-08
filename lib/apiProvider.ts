@@ -8,7 +8,7 @@ import {
   TrainSummary,
   ProviderError,
 } from "./types";
-
+import type { ControlOfficeSummary } from "./controlOfficeTypes";
 // ---------------------------------------------------------------------------
 // Live API provider. This is the ONLY file that needs to change once the
 // real Railway Live API -> Backend -> ML ETA Engine pipeline exists.
@@ -82,4 +82,13 @@ export async function apiGetModelMetrics(): Promise<ModelMetrics> {
 
 export async function apiListTrains(): Promise<TrainSummary[]> {
   return apiFetch<TrainSummary[]>(`/api/trains`);
+}
+// ---------------------------------------------------------------------------
+// Control Office dashboard — future live endpoint. Uses the same apiFetch
+// helper and error handling as every other function in this file. Until a
+// real backend exists, this will simply throw and dataProvider.ts falls
+// back to the Control Office demo data automatically.
+// ---------------------------------------------------------------------------
+export async function apiGetControlOfficeSummary(): Promise<ControlOfficeSummary> {
+  return apiFetch<ControlOfficeSummary>(`/api/operations/control-office`);
 }
